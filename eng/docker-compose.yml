@@ -1,0 +1,106 @@
+version: '3.1'
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one
+    container_name: jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9412
+    ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14250:14250
+      - 14268:14268
+      - 14269:14269
+      - 9412:9412
+
+  postgres-db:
+    image: postgres
+    hostname: "db-crypto-price-calculator"
+    container_name: db-crypto-price-calculator
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: "Postgres2019!"
+      POSTGRES_USER: "admin"
+      POSTGRES_DB: "crypto-price-calculator"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - postgres-compose-network
+
+  flyway-structure:
+    image: flyway/flyway
+    depends_on:
+      - postgres-db
+    networks:
+      - postgres-compose-network
+    environment:
+      - FLYWAY_EDITION=community
+    command: -url=jdbc:postgresql://db-crypto-price-calculator:5432/crypto-price-calculator -createSchemas=true -schemas=crypto-price-calculator -user=admin -password=Postgres2019! -connectRetries=10 migrate
+    volumes:
+      - ./sql/structure_sql_scripts:/flyway/sql/
+
+  flyway-data:
+    image: flyway/flyway
+    depends_on:
+      - postgres-db
+      - flyway-structure
+    networks:
+      - postgres-compose-network
+    environment:
+      - FLYWAY_EDITION=community
+    command: -url=jdbc:postgresql://db-crypto-price-calculator:5432/crypto-price-calculator -schemas=crypto-price-calculator -user=admin -password=Postgres2019! -connectRetries=10 migrate
+    volumes:
+      - ./sql/data_sql_scripts:/flyway/sql/
+
+  loki:
+    image: grafana/loki:2.6.1
+    ports:
+      - "3100:3100"
+    command: -config.file=/mnt/config/loki-config.yaml
+    volumes:
+      - ./grafana:/mnt/config
+    networks:
+      - loki
+
+  promtail:
+    image: grafana/promtail:2.6.1
+    depends_on:
+      - loki
+    volumes:
+      - ./grafana:/mnt/config
+      - ./logs:/var/log
+    command: -config.file=/mnt/config/promtail-config.yaml
+    networks:
+      - loki
+
+  grafana:
+    image: grafana/grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-logs:/var/log/grafana
+      - grafana-config:/etc/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - loki
+
+networks:
+  postgres-compose-network:
+    driver: bridge
+  loki:
+
+volumes:
+  postgres-data:
+    driver: local
+  grafana-data:
+    driver: local
+  grafana-logs:
+    driver: local
+  grafana-config:
+    driver: local
